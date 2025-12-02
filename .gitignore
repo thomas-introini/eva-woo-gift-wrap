@@ -1,0 +1,22 @@
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+vendor/
+node_modules/
+
+# Build
+build/
+dist/
+*.map
+*.zip
+
+# Logs
+*.log
+

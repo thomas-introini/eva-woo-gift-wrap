@@ -1,0 +1,69 @@
+# Docker Compose configuration for EVA Gift Wrap development environment.
+# WordPress + WooCommerce with the plugin mounted for live development.
+
+services:
+  db:
+    image: mariadb
+    container_name: eva-gift-wrap-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  wordpress:
+    image: wordpress:php8.2-apache
+    container_name: eva-gift-wrap-wp
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DEBUG: 1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_DEBUG', true);
+        define('WP_DEBUG_LOG', true);
+        define('WP_DEBUG_DISPLAY', true);
+        define('SCRIPT_DEBUG', true);
+    volumes:
+      # Mount the plugin for live development.
+      - .:/var/www/html/wp-content/plugins/eva-gift-wrap
+      # Persist WordPress installation.
+      - wp_data:/var/www/html
+
+  # WP-CLI for setup automation.
+  wpcli:
+    image: wordpress:cli-php8.2
+    container_name: eva-gift-wrap-cli
+    depends_on:
+      - wordpress
+    user: "33:33"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - .:/var/www/html/wp-content/plugins/eva-gift-wrap
+      - wp_data:/var/www/html
+    entrypoint: ["wp", "--allow-root"]
+    command: ["--info"]
+
+volumes:
+  db_data:
+  wp_data:
+

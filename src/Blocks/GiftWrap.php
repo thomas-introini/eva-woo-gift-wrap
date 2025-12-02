@@ -1,0 +1,294 @@
+<?php
+/**
+ * Gift Wrap Block Extension.
+ *
+ * Handles the WooCommerce Blocks Store API integration for the gift wrap option,
+ * including schema extension, data registration, and fee calculation.
+ *
+ * @package EvaGiftWrap\Blocks
+ */
+
+declare(strict_types=1);
+
+namespace EvaGiftWrap\Blocks;
+
+use Automattic\WooCommerce\StoreApi\Schemas\V1\CheckoutSchema;
+use Automattic\WooCommerce\StoreApi\StoreApi;
+
+defined('ABSPATH') || exit;
+
+/**
+ * Gift Wrap block extension handler.
+ */
+final class GiftWrap {
+
+    /**
+     * Extension namespace.
+     */
+    public const NAMESPACE = 'eva';
+
+    /**
+     * Extension field name.
+     */
+    public const FIELD_NAME = 'gift_wrap';
+
+    /**
+     * Fee amount in euros.
+     */
+    public const FEE_AMOUNT = 1.50;
+
+    /**
+     * Initialize the gift wrap extension.
+     *
+     * @return void
+     */
+    public function init(): void {
+        // Register the Store API extension.
+        add_action('woocommerce_blocks_loaded', [$this, 'register_store_api_extension']);
+
+        // Add the fee to cart totals.
+        add_action('woocommerce_cart_calculate_fees', [$this, 'maybe_add_gift_wrap_fee'], 20);
+
+        // Register the integration for block scripts.
+        add_action('woocommerce_blocks_checkout_block_registration', [$this, 'register_checkout_block_integration']);
+
+        // Register custom REST endpoint for gift wrap toggle.
+        add_action('rest_api_init', [$this, 'register_rest_routes']);
+    }
+
+    /**
+     * Register custom REST routes.
+     *
+     * @return void
+     */
+    public function register_rest_routes(): void {
+        register_rest_route('eva-gift-wrap/v1', '/toggle', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'handle_toggle_request'],
+            'permission_callback' => '__return_true',
+            'args'                => [
+                'enabled' => [
+                    'type'     => 'boolean',
+                    'required' => true,
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Handle the gift wrap toggle REST request.
+     *
+     * @param \WP_REST_Request $request The request object.
+     * @return \WP_REST_Response
+     */
+    public function handle_toggle_request(\WP_REST_Request $request): \WP_REST_Response {
+        $enabled = (bool) $request->get_param('enabled');
+
+        $this->set_gift_wrap_value($enabled);
+
+        // Force cart recalculation.
+        if (function_exists('WC') && WC()->cart) {
+            WC()->cart->calculate_totals();
+        }
+
+        return new \WP_REST_Response([
+            'success'   => true,
+            'gift_wrap' => $enabled,
+        ], 200);
+    }
+
+    /**
+     * Register the Store API extension for gift wrap data.
+     *
+     * @return void
+     */
+    public function register_store_api_extension(): void {
+        // Ensure the ExtendSchema class exists.
+        if (! class_exists('Automattic\WooCommerce\StoreApi\Schemas\ExtendSchema')) {
+            return;
+        }
+
+        // Get the ExtendSchema instance from the Store API.
+        if (! function_exists('Automattic\WooCommerce\StoreApi\StoreApi::container')) {
+            return;
+        }
+
+        try {
+            $extend = StoreApi::container()->get(\Automattic\WooCommerce\StoreApi\Schemas\ExtendSchema::class);
+        } catch (\Exception $e) {
+            return;
+        }
+
+        // Register the checkout data callback to expose gift_wrap in the response.
+        $extend->register_endpoint_data([
+            'endpoint'        => CheckoutSchema::IDENTIFIER,
+            'namespace'       => self::NAMESPACE,
+            'data_callback'   => [$this, 'get_extension_data'],
+            'schema_callback' => [$this, 'get_extension_schema'],
+            'schema_type'     => ARRAY_A,
+        ]);
+
+        // Also register for the cart schema so we can receive updates.
+        $extend->register_endpoint_data([
+            'endpoint'        => \Automattic\WooCommerce\StoreApi\Schemas\V1\CartSchema::IDENTIFIER,
+            'namespace'       => self::NAMESPACE,
+            'data_callback'   => [$this, 'get_extension_data'],
+            'schema_callback' => [$this, 'get_extension_schema'],
+            'schema_type'     => ARRAY_A,
+        ]);
+
+        // Register update callback for cart/update-customer endpoint.
+        add_action(
+            'woocommerce_store_api_cart_update_customer_from_request',
+            [$this, 'handle_cart_update_request'],
+            10,
+            2
+        );
+
+        // Register the update callback for handling incoming gift_wrap data.
+        add_action(
+            'woocommerce_store_api_checkout_update_order_from_request',
+            [$this, 'handle_checkout_order_update'],
+            10,
+            2
+        );
+    }
+
+    /**
+     * Get the extension data for the checkout response.
+     *
+     * @return array<string, bool>
+     */
+    public function get_extension_data(): array {
+        return [
+            self::FIELD_NAME => $this->get_gift_wrap_value(),
+        ];
+    }
+
+    /**
+     * Get the extension schema for the Store API.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function get_extension_schema(): array {
+        return [
+            self::FIELD_NAME => [
+                'description' => __('Whether gift wrap is requested.', 'eva-gift-wrap'),
+                'type'        => 'boolean',
+                'context'     => ['view', 'edit'],
+                'readonly'    => false,
+                'default'     => false,
+            ],
+        ];
+    }
+
+    /**
+     * Handle cart update request from the frontend.
+     *
+     * @param \WC_Customer     $customer The customer object.
+     * @param \WP_REST_Request $request  The request object.
+     * @return void
+     */
+    public function handle_cart_update_request($customer, \WP_REST_Request $request): void {
+        $extensions = $request->get_param('extensions');
+
+        if (
+            is_array($extensions) &&
+            isset($extensions[self::NAMESPACE][self::FIELD_NAME])
+        ) {
+            $gift_wrap = (bool) $extensions[self::NAMESPACE][self::FIELD_NAME];
+            $this->set_gift_wrap_value($gift_wrap);
+
+            // Force cart recalculation.
+            if (function_exists('WC') && WC()->cart) {
+                WC()->cart->calculate_totals();
+            }
+        }
+    }
+
+    /**
+     * Handle order update from checkout request.
+     *
+     * Stores the gift wrap preference in the session and order meta.
+     *
+     * @param \WC_Order     $order   The order being placed.
+     * @param \WP_REST_Request $request The checkout request.
+     * @return void
+     */
+    public function handle_checkout_order_update(\WC_Order $order, \WP_REST_Request $request): void {
+        $extensions = $request->get_param('extensions');
+
+        $gift_wrap = false;
+        if (
+            is_array($extensions) &&
+            isset($extensions[self::NAMESPACE][self::FIELD_NAME])
+        ) {
+            $gift_wrap = (bool) $extensions[self::NAMESPACE][self::FIELD_NAME];
+        }
+
+        // Save to order meta.
+        $order->update_meta_data('_eva_gift_wrap', $gift_wrap ? 'yes' : 'no');
+
+        // Also update session for cart calculations.
+        $this->set_gift_wrap_value($gift_wrap);
+    }
+
+    /**
+     * Register checkout block integration for the gift wrap extension.
+     *
+     * @param \Automattic\WooCommerce\Blocks\Integrations\IntegrationRegistry $integration_registry Integration registry.
+     * @return void
+     */
+    public function register_checkout_block_integration($integration_registry): void {
+        // We handle script enqueueing in Plugin::enqueue_scripts().
+        // This hook is available for more complex integrations if needed.
+    }
+
+    /**
+     * Add the gift wrap fee to the cart if enabled.
+     *
+     * @param \WC_Cart $cart The cart object.
+     * @return void
+     */
+    public function maybe_add_gift_wrap_fee(\WC_Cart $cart): void {
+        if (is_admin() && ! defined('DOING_AJAX')) {
+            return;
+        }
+
+        if ($this->get_gift_wrap_value()) {
+            $cart->add_fee(
+                esc_html__('Confezione regalo', 'eva-gift-wrap'),
+                self::FEE_AMOUNT,
+                false // Not taxable.
+            );
+        }
+    }
+
+    /**
+     * Get the stored gift wrap value from session.
+     *
+     * @return bool
+     */
+    private function get_gift_wrap_value(): bool {
+        if (! function_exists('WC') || ! WC()->session) {
+            return false;
+        }
+
+        return (bool) WC()->session->get('eva_gift_wrap', false);
+    }
+
+    /**
+     * Set the gift wrap value in the session.
+     *
+     * @param bool $value The gift wrap value.
+     * @return void
+     */
+    private function set_gift_wrap_value(bool $value): void {
+        if (! function_exists('WC') || ! WC()->session) {
+            return;
+        }
+
+        WC()->session->set('eva_gift_wrap', $value);
+    }
+}
+
