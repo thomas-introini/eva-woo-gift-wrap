@@ -2,13 +2,19 @@
  * EVA Gift Wrap - Checkout Block Extension
  *
  * Adds a gift wrap checkbox to the WooCommerce Checkout Block.
- * When enabled, a €1.50 fee is added to the cart totals.
+ * When enabled, a configurable fee is added to the cart totals.
  *
  * @package EvaGiftWrap
  */
 
 (function () {
     'use strict';
+
+    // Get settings passed from PHP.
+    var settings = window.evaGiftWrapSettings || {};
+    var sectionTitle = settings.sectionTitle || 'Extra';
+    var label = settings.label || 'Confezione regalo';
+    var feeFormatted = settings.feeFormatted || '€1,50';
 
     // Ensure WooCommerce Blocks checkout API is available.
     if (
@@ -32,26 +38,50 @@
 
     var createElement = window.wp.element.createElement;
     var useState = window.wp.element.useState;
+    var useEffect = window.wp.element.useEffect;
     var useCallback = window.wp.element.useCallback;
     var CheckboxControl = window.wp.components.CheckboxControl;
-    var registerPlugin = window.wp.plugins.registerPlugin;
+    // We will mount our own React tree instead of using registerPlugin.
     var dispatch = window.wp.data.dispatch;
 
-    // Get the experimental slot fill for order meta.
-    var ExperimentalOrderMeta = window.wc.blocksCheckout.ExperimentalOrderMeta;
-
-    // Extension namespace and field name.
-    var NAMESPACE = 'eva';
-    var FIELD_NAME = 'gift_wrap';
+    /**
+     * Chevron Icon Component
+     */
+    function ChevronIcon(props) {
+        var isOpen = props.isOpen;
+        return createElement(
+            'svg',
+            {
+                xmlns: 'http://www.w3.org/2000/svg',
+                viewBox: '0 0 24 24',
+                width: '24',
+                height: '24',
+                className: 'eva-gift-wrap-chevron',
+                style: {
+                    transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.3s ease',
+                },
+            },
+            createElement('path', {
+                d: 'M17.5 11.6L12 16l-5.5-4.4.9-1.2L12 14l4.5-3.6 1 1.2z',
+                fill: 'currentColor',
+            })
+        );
+    }
 
     /**
-     * Gift Wrap Checkbox Component
+     * Gift Wrap Accordion Section Component
      *
-     * Renders a checkbox that allows customers to add gift wrapping to their order.
+     * Renders a collapsible accordion section with gift wrap checkbox.
      *
-     * @return {Element} The checkbox component.
+     * @return {Element} The accordion section component.
      */
-    function GiftWrapCheckbox() {
+    function GiftWrapAccordion() {
+        // Accordion open/closed state.
+        var _useStateOpen = useState(false);
+        var isOpen = _useStateOpen[0];
+        var setIsOpen = _useStateOpen[1];
+
         // Local state for the checkbox.
         var _useState = useState(false);
         var isChecked = _useState[0];
@@ -61,6 +91,16 @@
         var _useStateLoading = useState(false);
         var isLoading = _useStateLoading[0];
         var setIsLoading = _useStateLoading[1];
+
+        // Build the checkbox label with fee.
+        var checkboxLabel = label + ' (+' + feeFormatted + ')';
+
+        // Toggle accordion.
+        var toggleAccordion = useCallback(function () {
+            setIsOpen(function (prev) {
+                return !prev;
+            });
+        }, []);
 
         // Handle checkbox change.
         var handleChange = useCallback(
@@ -104,44 +144,88 @@
             [isLoading]
         );
 
-        // Render the checkbox control.
+        // Render the accordion section.
         return createElement(
             'div',
             {
-                className: 'eva-gift-wrap-option',
-                style: {
-                    padding: '16px 0',
-                    borderTop: '1px solid #e0e0e0',
-                    opacity: isLoading ? 0.7 : 1,
-                },
+                className: 'wc-block-components-totals-wrapper eva-gift-wrap-section',
             },
-            createElement(CheckboxControl, {
-                label: 'Confezione regalo (+1,50€)',
-                checked: isChecked,
-                onChange: handleChange,
-                disabled: isLoading,
-            })
+            // Accordion header (clickable)
+            createElement(
+                'button',
+                {
+                    type: 'button',
+                    className: 'eva-gift-wrap-accordion-header',
+                    onClick: toggleAccordion,
+                    'aria-expanded': isOpen,
+                },
+                createElement(
+                    'span',
+                    { className: 'eva-gift-wrap-accordion-title' },
+                    sectionTitle
+                ),
+                createElement(ChevronIcon, { isOpen: isOpen })
+            ),
+            // Accordion content (show/hide)
+            createElement(
+                'div',
+                {
+                    className: 'eva-gift-wrap-accordion-content',
+                    style: {
+                        display: isOpen ? 'block' : 'none',
+                    },
+                },
+                createElement(
+                    'div',
+                    {
+                        className: 'eva-gift-wrap-option',
+                        style: {
+                            opacity: isLoading ? 0.7 : 1,
+                        },
+                    },
+                    createElement(CheckboxControl, {
+                        label: checkboxLabel,
+                        checked: isChecked,
+                        onChange: handleChange,
+                        disabled: isLoading,
+                    })
+                )
+            )
         );
     }
 
     /**
-     * Render function for the plugin slot fill.
+     * Mount the gift wrap accordion just above the \"Add coupon\" section.
      */
-    function GiftWrapSlotFill() {
-        return createElement(
-            ExperimentalOrderMeta,
-            null,
-            createElement(GiftWrapCheckbox, null)
-        );
+    function mountGiftWrap() {
+        // Try to locate the coupon section row.
+        var couponRow =
+            document.querySelector('.wc-block-components-totals-coupon') ||
+            document.querySelector('.wc-block-components-totals-coupon-link') ||
+            document.querySelector('.wc-block-components-totals-row--coupon');
+
+        if (!couponRow || !couponRow.parentNode) {
+            return;
+        }
+
+        // Create a placeholder container for our React tree.
+        var container = document.createElement('div');
+        container.className = 'wc-block-components-panel';
+        couponRow.parentNode.insertBefore(container, couponRow);
+
+        // Render the accordion into the placeholder.
+        if (window.wp && window.wp.element && typeof window.wp.element.render === 'function') {
+            window.wp.element.render(
+                createElement(GiftWrapAccordion, null),
+                container
+            );
+        }
     }
 
-    // Register the plugin with WooCommerce checkout scope.
-    try {
-        registerPlugin('eva-gift-wrap', {
-            render: GiftWrapSlotFill,
-            scope: 'woocommerce-checkout',
-        });
-    } catch (error) {
-        console.error('EVA Gift Wrap: Failed to register plugin.', error);
+    // Wait for DOM to be ready, then try to mount.
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        mountGiftWrap();
+    } else {
+        document.addEventListener('DOMContentLoaded', mountGiftWrap);
     }
 })();

@@ -36,6 +36,13 @@ final class Plugin {
     private ?GiftWrap $gift_wrap = null;
 
     /**
+     * Settings handler.
+     *
+     * @var Settings|null
+     */
+    private ?Settings $settings = null;
+
+    /**
      * Get the singleton instance.
      *
      * @return Plugin
@@ -77,6 +84,10 @@ final class Plugin {
      * @return void
      */
     private function init(): void {
+        // Initialize settings (always, for admin).
+        $this->settings = new Settings();
+        $this->settings->init();
+
         // Initialize the gift wrap block extension.
         $this->gift_wrap = new GiftWrap();
         $this->gift_wrap->init();
@@ -93,6 +104,11 @@ final class Plugin {
     public function enqueue_scripts(): void {
         // Only enqueue on the checkout page.
         if (! function_exists('is_checkout') || ! is_checkout()) {
+            return;
+        }
+
+        // Check if gift wrap is enabled.
+        if (! Settings::is_enabled()) {
             return;
         }
 
@@ -123,6 +139,21 @@ final class Plugin {
             ],
             $version,
             true
+        );
+
+        // Pass settings to JavaScript.
+        $fee = Settings::get_fee();
+        $formatted_fee = function_exists('wc_price') ? wp_strip_all_tags(wc_price($fee)) : '€' . number_format($fee, 2, ',', '.');
+
+        wp_localize_script(
+            'eva-gift-wrap-checkout',
+            'evaGiftWrapSettings',
+            [
+                'sectionTitle' => Settings::get_section_title(),
+                'label'        => Settings::get_label(),
+                'fee'          => $fee,
+                'feeFormatted' => $formatted_fee,
+            ]
         );
 
         // Set script translations.

@@ -28,7 +28,7 @@ mkdir -p "${DIST_DIR}"
 # Files and directories to include in the bundle.
 INCLUDE=(
     "eva-gift-wrap.php"
-    "readme.txt"
+    "readme.md"
     "src"
     "assets"
     "languages"

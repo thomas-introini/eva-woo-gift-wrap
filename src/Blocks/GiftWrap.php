@@ -14,6 +14,7 @@ namespace EvaGiftWrap\Blocks;
 
 use Automattic\WooCommerce\StoreApi\Schemas\V1\CheckoutSchema;
 use Automattic\WooCommerce\StoreApi\StoreApi;
+use EvaGiftWrap\Settings;
 
 defined('ABSPATH') || exit;
 
@@ -31,11 +32,6 @@ final class GiftWrap {
      * Extension field name.
      */
     public const FIELD_NAME = 'gift_wrap';
-
-    /**
-     * Fee amount in euros.
-     */
-    public const FEE_AMOUNT = 1.50;
 
     /**
      * Initialize the gift wrap extension.
@@ -255,10 +251,15 @@ final class GiftWrap {
             return;
         }
 
+        // Check if gift wrap feature is enabled in settings.
+        if (! Settings::is_enabled()) {
+            return;
+        }
+
         if ($this->get_gift_wrap_value()) {
             $cart->add_fee(
-                esc_html__('Confezione regalo', 'eva-gift-wrap'),
-                self::FEE_AMOUNT,
+                esc_html(Settings::get_label()),
+                Settings::get_fee(),
                 false // Not taxable.
             );
         }
