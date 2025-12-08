@@ -110,12 +110,16 @@
                 setIsChecked(checked);
                 setIsLoading(true);
 
-                // Send update to our custom endpoint.
+                // Use the WooCommerce Store API to persist extension data in the cart session.
                 wp.apiFetch({
-                    path: '/eva-gift-wrap/v1/toggle',
+                    path: '/wc/store/v1/cart/update-customer',
                     method: 'POST',
                     data: {
-                        enabled: checked,
+                        extensions: {
+                            eva: {
+                                gift_wrap: checked,
+                            },
+                        },
                     },
                 })
                     .then(function () {

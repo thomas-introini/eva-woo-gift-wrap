@@ -8,7 +8,11 @@ set -e
 
 # Plugin name and version.
 PLUGIN_SLUG="eva-gift-wrap"
-VERSION=$(grep -oP "Version:\s*\K[0-9.]+" eva-gift-wrap.php)
+VERSION=$(sed -n -E 's/^[[:space:]]*\*[[:space:]]*Version:[[:space:]]*([0-9.]+).*$/\1/p' eva-gift-wrap.php | head -n 1)
+if [ -z "${VERSION}" ]; then
+	echo "❌ Could not extract Version from eva-gift-wrap.php header" >&2
+	exit 1
+fi
 
 # Build directories.
 BUILD_DIR="build"

@@ -1,9 +1,10 @@
 <?php
+
 /**
  * Plugin Name: EVA Gift Wrap
  * Plugin URI: https://example.com/eva-gift-wrap
  * Description: Adds a "Confezione regalo" (gift wrap) option to the WooCommerce Checkout Block with a fixed €1.50 fee.
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author: Thomas Introini
  * Author URI: https://example.com
  * License: GPL-2.0-or-later
@@ -56,7 +57,8 @@ spl_autoload_register(static function (string $class): void {
  *
  * @return void
  */
-function eva_gift_wrap_init(): void {
+function eva_gift_wrap_init(): void
+{
     // Load plugin textdomain for translations.
     load_plugin_textdomain(
         'eva-gift-wrap',
@@ -67,7 +69,7 @@ function eva_gift_wrap_init(): void {
     // Check if WooCommerce is active.
     if (! class_exists('WooCommerce')) {
         add_action('admin_notices', static function (): void {
-            ?>
+?>
             <div class="notice notice-error">
                 <p>
                     <?php
@@ -78,7 +80,7 @@ function eva_gift_wrap_init(): void {
                     ?>
                 </p>
             </div>
-            <?php
+        <?php
         });
         return;
     }
@@ -86,7 +88,7 @@ function eva_gift_wrap_init(): void {
     // Check if WooCommerce Blocks is available.
     if (! class_exists('Automattic\WooCommerce\Blocks\Package')) {
         add_action('admin_notices', static function (): void {
-            ?>
+        ?>
             <div class="notice notice-error">
                 <p>
                     <?php
@@ -97,7 +99,7 @@ function eva_gift_wrap_init(): void {
                     ?>
                 </p>
             </div>
-            <?php
+<?php
         });
         return;
     }
@@ -112,7 +114,8 @@ add_action('plugins_loaded', 'eva_gift_wrap_init');
  *
  * @return void
  */
-function eva_gift_wrap_declare_hpos_compatibility(): void {
+function eva_gift_wrap_declare_hpos_compatibility(): void
+{
     if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
         \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility(
             'custom_order_tables',
@@ -122,4 +125,3 @@ function eva_gift_wrap_declare_hpos_compatibility(): void {
     }
 }
 add_action('before_woocommerce_init', 'eva_gift_wrap_declare_hpos_compatibility');
-

@@ -80,11 +80,30 @@ final class GiftWrap {
     public function handle_toggle_request(\WP_REST_Request $request): \WP_REST_Response {
         $enabled = (bool) $request->get_param('enabled');
 
+        // WooCommerce log: toggle received.
+        $logger   = function_exists('wc_get_logger') ? wc_get_logger() : null;
+        $context  = ['source' => 'eva-gift-wrap'];
+        $sessionId = (function_exists('WC') && WC()->session) ? WC()->session->get_customer_id() : 'no-session';
+        if ($logger) {
+            $logger->info(
+                sprintf('toggle request: enabled=%s session_id=%s', $enabled ? '1' : '0', (string) $sessionId),
+                $context
+            );
+        }
+
+        // Ensure cart/session are initialized for REST context.
+        if (function_exists('wc_load_cart')) {
+            wc_load_cart();
+        }
+
         $this->set_gift_wrap_value($enabled);
 
         // Force cart recalculation.
         if (function_exists('WC') && WC()->cart) {
             WC()->cart->calculate_totals();
+            if ($logger) {
+                $logger->debug('toggle request: cart totals recalculated', $context);
+            }
         }
 
         return new \WP_REST_Response([
@@ -188,6 +207,9 @@ final class GiftWrap {
     public function handle_cart_update_request($customer, \WP_REST_Request $request): void {
         $extensions = $request->get_param('extensions');
 
+        $logger  = function_exists('wc_get_logger') ? wc_get_logger() : null;
+        $context = ['source' => 'eva-gift-wrap'];
+
         if (
             is_array($extensions) &&
             isset($extensions[self::NAMESPACE][self::FIELD_NAME])
@@ -195,9 +217,19 @@ final class GiftWrap {
             $gift_wrap = (bool) $extensions[self::NAMESPACE][self::FIELD_NAME];
             $this->set_gift_wrap_value($gift_wrap);
 
+            if ($logger) {
+                $logger->info(
+                    'cart update (update-customer): gift_wrap=' . ($gift_wrap ? '1' : '0'),
+                    $context
+                );
+            }
+
             // Force cart recalculation.
             if (function_exists('WC') && WC()->cart) {
                 WC()->cart->calculate_totals();
+                if ($logger) {
+                    $logger->debug('cart update (update-customer): cart totals recalculated', $context);
+                }
             }
         }
     }
@@ -220,6 +252,19 @@ final class GiftWrap {
             isset($extensions[self::NAMESPACE][self::FIELD_NAME])
         ) {
             $gift_wrap = (bool) $extensions[self::NAMESPACE][self::FIELD_NAME];
+        }
+
+        $logger  = function_exists('wc_get_logger') ? wc_get_logger() : null;
+        $context = ['source' => 'eva-gift-wrap'];
+        if ($logger) {
+            $logger->info(
+                sprintf(
+                    'checkout update: order_id=%s gift_wrap=%s',
+                    method_exists($order, 'get_id') ? (string) $order->get_id() : 'unknown',
+                    $gift_wrap ? '1' : '0'
+                ),
+                $context
+            );
         }
 
         // Save to order meta.
@@ -256,7 +301,28 @@ final class GiftWrap {
             return;
         }
 
-        if ($this->get_gift_wrap_value()) {
+        $logger  = function_exists('wc_get_logger') ? wc_get_logger() : null;
+        $context = ['source' => 'eva-gift-wrap'];
+
+        $gift_wrap_enabled = $this->get_gift_wrap_value();
+        if ($logger) {
+            $logger->debug(
+                'maybe_add_gift_wrap_fee: gift_wrap=' . ($gift_wrap_enabled ? '1' : '0'),
+                $context
+            );
+        }
+
+        if ($gift_wrap_enabled) {
+            if ($logger) {
+                $logger->info(
+                    sprintf(
+                        'adding fee: label="%s" amount=%s',
+                        (string) Settings::get_label(),
+                        (string) Settings::get_fee()
+                    ),
+                    $context
+                );
+            }
             $cart->add_fee(
                 esc_html(Settings::get_label()),
                 Settings::get_fee(),
