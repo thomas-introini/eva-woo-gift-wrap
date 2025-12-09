@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Main plugin class.
  *
@@ -13,13 +14,23 @@ declare(strict_types=1);
 namespace EvaGiftWrap;
 
 use EvaGiftWrap\Blocks\GiftWrap;
+use WP_Post;
+use function add_action;
+use function has_block;
+use function is_checkout;
+use function wc_price;
+use function wp_enqueue_script;
+use function wp_localize_script;
+use function wp_set_script_translations;
+use function wp_strip_all_tags;
 
 defined('ABSPATH') || exit;
 
 /**
  * Plugin main class (singleton).
  */
-final class Plugin {
+final class Plugin
+{
 
     /**
      * Plugin instance.
@@ -47,7 +58,8 @@ final class Plugin {
      *
      * @return Plugin
      */
-    public static function instance(): Plugin {
+    public static function instance(): Plugin
+    {
         if (null === self::$instance) {
             self::$instance = new self();
         }
@@ -57,7 +69,8 @@ final class Plugin {
     /**
      * Private constructor to prevent direct instantiation.
      */
-    private function __construct() {
+    private function __construct()
+    {
         $this->init();
     }
 
@@ -74,7 +87,8 @@ final class Plugin {
      * @throws \Exception Always throws to prevent unserialization.
      * @return void
      */
-    public function __wakeup(): void {
+    public function __wakeup(): void
+    {
         throw new \Exception('Cannot unserialize singleton');
     }
 
@@ -83,7 +97,8 @@ final class Plugin {
      *
      * @return void
      */
-    private function init(): void {
+    private function init(): void
+    {
         // Initialize settings (always, for admin).
         $this->settings = new Settings();
         $this->settings->init();
@@ -101,7 +116,8 @@ final class Plugin {
      *
      * @return void
      */
-    public function enqueue_scripts(): void {
+    public function enqueue_scripts(): void
+    {
         // Only enqueue on the checkout page.
         if (! function_exists('is_checkout') || ! is_checkout()) {
             return;
@@ -109,6 +125,11 @@ final class Plugin {
 
         // Check if gift wrap is enabled.
         if (! Settings::is_enabled()) {
+            return;
+        }
+
+        // If Additional Checkout Fields API is available, rely on server-rendered field (no JS).
+        if (function_exists('woocommerce_register_additional_checkout_field')) {
             return;
         }
 
@@ -169,7 +190,8 @@ final class Plugin {
      *
      * @return bool
      */
-    private function has_checkout_block(): bool {
+    private function has_checkout_block(): bool
+    {
         global $post;
 
         if (! $post instanceof \WP_Post) {
@@ -179,4 +201,3 @@ final class Plugin {
         return has_block('woocommerce/checkout', $post);
     }
 }
-

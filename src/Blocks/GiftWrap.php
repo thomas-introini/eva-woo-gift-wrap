@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Gift Wrap Block Extension.
  *
@@ -15,13 +16,31 @@ namespace EvaGiftWrap\Blocks;
 use Automattic\WooCommerce\StoreApi\Schemas\V1\CheckoutSchema;
 use Automattic\WooCommerce\StoreApi\StoreApi;
 use EvaGiftWrap\Settings;
+use WC_Cart;
+use WC_Customer;
+use WC_Order;
+use WP_REST_Request;
+use WP_REST_Response;
+use function __;
+use function add_action;
+use function esc_html;
+use function is_admin;
+use function html_entity_decode;
+use function register_rest_route;
+use function wc_get_logger;
+use function wc_load_cart;
+use function woocommerce_register_additional_checkout_field;
+use function wp_strip_all_tags;
+use function wc_price;
+use function WC;
 
 defined('ABSPATH') || exit;
 
 /**
  * Gift Wrap block extension handler.
  */
-final class GiftWrap {
+final class GiftWrap
+{
 
     /**
      * Extension namespace.
@@ -38,18 +57,50 @@ final class GiftWrap {
      *
      * @return void
      */
-    public function init(): void {
+    public function init(): void
+    {
         // Register the Store API extension.
         add_action('woocommerce_blocks_loaded', [$this, 'register_store_api_extension']);
 
         // Add the fee to cart totals.
         add_action('woocommerce_cart_calculate_fees', [$this, 'maybe_add_gift_wrap_fee'], 20);
 
-        // Register the integration for block scripts.
-        add_action('woocommerce_blocks_checkout_block_registration', [$this, 'register_checkout_block_integration']);
-
         // Register custom REST endpoint for gift wrap toggle.
         add_action('rest_api_init', [$this, 'register_rest_routes']);
+
+        // Register Additional Checkout Field (Blocks-supported UI).
+        add_action('woocommerce_init', [$this, 'register_additional_checkout_field']);
+    }
+
+    /**
+     * Register the additional checkout field via WooCommerce Blocks API.
+     *
+     * @return void
+     */
+    public function register_additional_checkout_field(): void
+    {
+        if (! function_exists('woocommerce_register_additional_checkout_field')) {
+            return;
+        }
+
+        $fee         = Settings::get_fee();
+        $formatted   = function_exists('wc_price')
+            ? html_entity_decode(wp_strip_all_tags(wc_price($fee)), ENT_QUOTES, 'UTF-8')
+            : '€' . number_format($fee, 2, ',', '.');
+        $label = Settings::get_label() . ' (+' . $formatted . ')';
+
+        woocommerce_register_additional_checkout_field([
+            'id'       => 'eva-gift-wrap/gift_wrap',
+            'label'    => $label,
+            'location' => 'order',
+            'type'     => 'checkbox',
+            'required' => false,
+            'default'  => $this->get_gift_wrap_value(),
+            // Store value in order meta automatically.
+            'order_meta' => [
+                'key' => '_eva_gift_wrap',
+            ],
+        ]);
     }
 
     /**
@@ -57,7 +108,8 @@ final class GiftWrap {
      *
      * @return void
      */
-    public function register_rest_routes(): void {
+    public function register_rest_routes(): void
+    {
         register_rest_route('eva-gift-wrap/v1', '/toggle', [
             'methods'             => 'POST',
             'callback'            => [$this, 'handle_toggle_request'],
@@ -84,7 +136,8 @@ final class GiftWrap {
      * @param \WP_REST_Request $request The request object.
      * @return \WP_REST_Response
      */
-    public function handle_toggle_request(\WP_REST_Request $request): \WP_REST_Response {
+    public function handle_toggle_request(\WP_REST_Request $request): \WP_REST_Response
+    {
         $enabled = (bool) $request->get_param('enabled');
 
         // WooCommerce log: toggle received.
@@ -125,7 +178,8 @@ final class GiftWrap {
      * @param \WP_REST_Request $request The request object.
      * @return \WP_REST_Response
      */
-    public function get_status(\WP_REST_Request $request): \WP_REST_Response {
+    public function get_status(\WP_REST_Request $request): \WP_REST_Response
+    {
         $enabled = $this->get_gift_wrap_value();
 
         return new \WP_REST_Response([
@@ -138,7 +192,8 @@ final class GiftWrap {
      *
      * @return void
      */
-    public function register_store_api_extension(): void {
+    public function register_store_api_extension(): void
+    {
         // Ensure the ExtendSchema class exists.
         if (! class_exists('Automattic\WooCommerce\StoreApi\Schemas\ExtendSchema')) {
             return;
@@ -190,7 +245,8 @@ final class GiftWrap {
      *
      * @return array<string, bool>
      */
-    public function get_extension_data(): array {
+    public function get_extension_data(): array
+    {
         return [
             self::FIELD_NAME => $this->get_gift_wrap_value(),
         ];
@@ -201,7 +257,8 @@ final class GiftWrap {
      *
      * @return array<string, array<string, mixed>>
      */
-    public function get_extension_schema(): array {
+    public function get_extension_schema(): array
+    {
         return [
             self::FIELD_NAME => [
                 'description' => __('Whether gift wrap is requested.', 'eva-gift-wrap'),
@@ -220,7 +277,18 @@ final class GiftWrap {
      * @param \WP_REST_Request $request  The request object.
      * @return void
      */
-    public function handle_cart_update_request($customer, \WP_REST_Request $request): void {
+    public function handle_cart_update_request($customer, \WP_REST_Request $request): void
+    {
+        // Additional Checkout Field (Blocks) support.
+        $fieldValue = $this->get_gift_wrap_from_request($request);
+        if (null !== $fieldValue) {
+            $this->set_gift_wrap_value($fieldValue);
+
+            if (function_exists('WC') && WC()->cart) {
+                WC()->cart->calculate_totals();
+            }
+        }
+
         $extensions = $request->get_param('extensions');
 
         $logger  = function_exists('wc_get_logger') ? wc_get_logger() : null;
@@ -259,17 +327,22 @@ final class GiftWrap {
      * @param \WP_REST_Request $request The checkout request.
      * @return void
      */
-    public function handle_checkout_order_update(\WC_Order $order, \WP_REST_Request $request): void {
+    public function handle_checkout_order_update(\WC_Order $order, \WP_REST_Request $request): void
+    {
         $extensions = $request->get_param('extensions');
 
-        // Default: use extension data if provided, otherwise fall back to session value.
-        $gift_wrap = false;
-        if (
+        // Prefer Additional Checkout Field value when present (respect explicit false).
+        $acfValue = $this->get_gift_wrap_from_request($request);
+        if ($acfValue !== null) {
+            $gift_wrap = $acfValue;
+        } elseif (
             is_array($extensions) &&
             isset($extensions[self::NAMESPACE][self::FIELD_NAME])
         ) {
+            // Fallback to extension data.
             $gift_wrap = (bool) $extensions[self::NAMESPACE][self::FIELD_NAME];
         } else {
+            // Finally, fall back to session value.
             $gift_wrap = $this->get_gift_wrap_value();
         }
 
@@ -299,7 +372,8 @@ final class GiftWrap {
      * @param \Automattic\WooCommerce\Blocks\Integrations\IntegrationRegistry $integration_registry Integration registry.
      * @return void
      */
-    public function register_checkout_block_integration($integration_registry): void {
+    public function register_checkout_block_integration($integration_registry): void
+    {
         // We handle script enqueueing in Plugin::enqueue_scripts().
         // This hook is available for more complex integrations if needed.
     }
@@ -310,7 +384,8 @@ final class GiftWrap {
      * @param \WC_Cart $cart The cart object.
      * @return void
      */
-    public function maybe_add_gift_wrap_fee(\WC_Cart $cart): void {
+    public function maybe_add_gift_wrap_fee(\WC_Cart $cart): void
+    {
         if (is_admin() && ! defined('DOING_AJAX')) {
             return;
         }
@@ -355,7 +430,8 @@ final class GiftWrap {
      *
      * @return bool
      */
-    private function get_gift_wrap_value(): bool {
+    private function get_gift_wrap_value(): bool
+    {
         if (! function_exists('WC')) {
             return false;
         }
@@ -378,12 +454,41 @@ final class GiftWrap {
      * @param bool $value The gift wrap value.
      * @return void
      */
-    private function set_gift_wrap_value(bool $value): void {
+    private function set_gift_wrap_value(bool $value): void
+    {
         if (! function_exists('WC') || ! WC()->session) {
             return;
         }
 
         WC()->session->set('eva_gift_wrap', $value);
     }
-}
 
+    /**
+     * Extract gift wrap value from Store API request (Additional Checkout Field).
+     *
+     * @param \WP_REST_Request $request Request.
+     * @return bool|null
+     */
+    private function get_gift_wrap_from_request(\WP_REST_Request $request): ?bool
+    {
+        $additional = $request->get_param('additional_fields');
+        if (! is_array($additional)) {
+            return null;
+        }
+
+        // Accept both slash and underscore separators just in case.
+        $keys = [
+            'eva-gift-wrap/gift_wrap',
+            'eva_gift_wrap/gift_wrap',
+            'eva_gift_wrap',
+        ];
+
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $additional)) {
+                return (bool) $additional[$key];
+            }
+        }
+
+        return null;
+    }
+}
