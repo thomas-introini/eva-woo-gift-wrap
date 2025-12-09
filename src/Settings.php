@@ -177,6 +177,13 @@ final class Settings {
                 flex-shrink: 0;
                 color: currentColor;
             }
+            .eva-gift-wrap-option .components-base-control__field {
+                display: flex;
+                align-items: center;
+            }
+            .eva-gift-wrap-option .components-checkbox-control__input-container {
+                margin-right: 8px;
+            }
             .eva-gift-wrap-option .components-checkbox-control__input-container svg {
                 display: none !important;
             }

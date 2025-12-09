@@ -95,6 +95,27 @@
         // Build the checkbox label with fee.
         var checkboxLabel = label + ' (+' + feeFormatted + ')';
 
+        // On mount, sync initial checked state from the backend session (via REST).
+        useEffect(function () {
+            if (!wp || !wp.apiFetch) {
+                return;
+            }
+
+            wp.apiFetch({
+                path: '/eva-gift-wrap/v1/status',
+                method: 'GET',
+            })
+                .then(function (response) {
+                    if (response && typeof response.enabled === 'boolean') {
+                        setIsChecked(response.enabled);
+                    }
+                })
+                .catch(function (error) {
+                    // Non-fatal: just log, the checkbox will start unchecked.
+                    console.warn('EVA Gift Wrap: Failed to read initial state from backend.', error);
+                });
+        }, []);
+
         // Toggle accordion.
         var toggleAccordion = useCallback(function () {
             setIsOpen(function (prev) {
@@ -122,15 +143,9 @@
                         },
                     },
                 })
-                    .then(function () {
-                        // Fetch updated cart to refresh totals.
-                        return wp.apiFetch({
-                            path: '/wc/store/v1/cart',
-                            method: 'GET',
-                        });
-                    })
                     .then(function (cart) {
-                        // Update the cart store with fresh data.
+                        // Update the cart store with the response from update-customer
+                        // (which already contains updated totals and fees).
                         var cartStore = dispatch('wc/store/cart');
                         if (cartStore && cartStore.receiveCart) {
                             cartStore.receiveCart(cart);

@@ -69,6 +69,13 @@ final class GiftWrap {
                 ],
             ],
         ]);
+
+        // Simple status endpoint used by the frontend to restore checked state on page load.
+        register_rest_route('eva-gift-wrap/v1', '/status', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'get_status'],
+            'permission_callback' => '__return_true',
+        ]);
     }
 
     /**
@@ -113,6 +120,20 @@ final class GiftWrap {
     }
 
     /**
+     * Return current gift wrap status (from session) for frontend initialization.
+     *
+     * @param \WP_REST_Request $request The request object.
+     * @return \WP_REST_Response
+     */
+    public function get_status(\WP_REST_Request $request): \WP_REST_Response {
+        $enabled = $this->get_gift_wrap_value();
+
+        return new \WP_REST_Response([
+            'enabled' => $enabled,
+        ], 200);
+    }
+
+    /**
      * Register the Store API extension for gift wrap data.
      *
      * @return void
@@ -123,14 +144,9 @@ final class GiftWrap {
             return;
         }
 
-        // Get the ExtendSchema instance from the Store API.
-        if (! function_exists('Automattic\WooCommerce\StoreApi\StoreApi::container')) {
-            return;
-        }
-
         try {
             $extend = StoreApi::container()->get(\Automattic\WooCommerce\StoreApi\Schemas\ExtendSchema::class);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             return;
         }
 
@@ -246,12 +262,15 @@ final class GiftWrap {
     public function handle_checkout_order_update(\WC_Order $order, \WP_REST_Request $request): void {
         $extensions = $request->get_param('extensions');
 
+        // Default: use extension data if provided, otherwise fall back to session value.
         $gift_wrap = false;
         if (
             is_array($extensions) &&
             isset($extensions[self::NAMESPACE][self::FIELD_NAME])
         ) {
             $gift_wrap = (bool) $extensions[self::NAMESPACE][self::FIELD_NAME];
+        } else {
+            $gift_wrap = $this->get_gift_wrap_value();
         }
 
         $logger  = function_exists('wc_get_logger') ? wc_get_logger() : null;
@@ -337,7 +356,16 @@ final class GiftWrap {
      * @return bool
      */
     private function get_gift_wrap_value(): bool {
-        if (! function_exists('WC') || ! WC()->session) {
+        if (! function_exists('WC')) {
+            return false;
+        }
+
+        // Ensure the WooCommerce session/cart are initialized (especially in REST context).
+        if (! WC()->session && function_exists('wc_load_cart')) {
+            wc_load_cart();
+        }
+
+        if (! WC()->session) {
             return false;
         }
 
