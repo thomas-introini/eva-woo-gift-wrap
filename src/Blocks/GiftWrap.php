@@ -100,6 +100,15 @@ final class GiftWrap
             'order_meta' => [
                 'key' => '_eva_gift_wrap',
             ],
+            'hidden'   => [
+                'cart' => [
+                    'properties' => [
+                        'needs_shipping' => [
+                            'const' => false,
+                        ],
+                    ],
+                ],
+            ],
         ]);
     }
 
@@ -387,6 +396,9 @@ final class GiftWrap
     public function maybe_add_gift_wrap_fee(\WC_Cart $cart): void
     {
         if (is_admin() && ! defined('DOING_AJAX')) {
+            return;
+        }
+        if ( ! $cart || ! $cart->needs_shipping() ) {
             return;
         }
 

@@ -4,9 +4,9 @@
  * Plugin Name: EVA Gift Wrap
  * Plugin URI: https://example.com/eva-gift-wrap
  * Description: Adds a "Confezione regalo" (gift wrap) option to the WooCommerce Checkout Block with a fixed €1.50 fee.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Thomas Introini
- * Author URI: https://example.com
+ * Author URI: https://thomasintroini.it
  * License: GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: eva-gift-wrap
@@ -24,7 +24,7 @@ declare(strict_types=1);
 defined('ABSPATH') || exit;
 
 // Plugin constants.
-define('EVA_GIFT_WRAP_VERSION', '1.0.0');
+define('EVA_GIFT_WRAP_VERSION', '1.2.1');
 define('EVA_GIFT_WRAP_PLUGIN_FILE', __FILE__);
 define('EVA_GIFT_WRAP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('EVA_GIFT_WRAP_PLUGIN_URL', plugin_dir_url(__FILE__));
